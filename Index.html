@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Rádio Família</title>
+  <!-- Biblioteca PeerJS para conectar os dois celulares direto via WebRTC -->
+  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+  <style>
+    * { box-sizing: border-box; user-select: none; -webkit-user-select: none; }
+    body {
+      margin: 0; height: 100vh; display: flex; flex-direction: column;
+      background: #111; color: #fff; font-family: Arial, sans-serif;
+    }
+    #status {
+      padding: 15px; text-align: center; font-size: 20px; font-weight: bold;
+      background: #222; border-bottom: 2px solid #444;
+    }
+    #ptt {
+      flex: 1; margin: 15px; border-radius: 25px; border: none;
+      background: #1b5e20; color: white; font-size: 38px; font-weight: bold;
+      display: flex; align-items: center; justify-content: center;
+      text-align: center; box-shadow: 0 8px 0 #0d3311; cursor: pointer;
+    }
+    #ptt.falando { background: #c62828; box-shadow: 0 2px 0 #6b1111; transform: translateY(6px); }
+    #ptt.ouvindo { background: #ef6c00; }
+    #ptt:disabled { background: #444; box-shadow: none; color: #888; }
+  </style>
+</head>
+<body>
+  <div id="status">TOQUE NA TELA PARA ATIVAR</div>
+  <button id="ptt" disabled>AGUARDANDO...</button>
+  <audio id="audioRemoto" autoplay></audio>
+
+  <script>
+    // IDENTIFICAÇÃO DOS APARELHOS (Mude a palavra-chave para algo único seu!)
+    const ID_PAIS = "radio-casa-pais-998877";
+    const ID_FILHO = "radio-casa-filho-998877";
+
+    // Se abrir o link com ?pais no final, ele assume o papel do celular dos seus pais
+    const souOsPais = location.search.includes("pais");
+    const meuId = souOsPais ? ID_PAIS : ID_FILHO;
+    const destinoId = souOsPais ? ID_FILHO : ID_PAIS;
+
+    const btn = document.getElementById('ptt');
+    const status = document.getElementById('status');
+    const audioRemoto = document.getElementById('audioRemoto');
+    let meuStream, peer, chamadaAtiva;
+
+    // Inicia tudo no primeiro toque na tela (exigência do navegador)
+    document.body.addEventListener('click', iniciarSistema, { once: true });
+    document.body.addEventListener('touchstart', iniciarSistema, { once: true });
+
+    async function iniciarSistema() {
+      if (peer) return;
+      status.innerText = "Liberando microfone...";
+
+      try {
+        meuStream = await navigator.mediaDevices.getUserMedia({
+          audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+        });
+        // Começa com o microfone MUTADO (só abre quando segurar o botão)
+        meuStream.getAudioTracks()[0].enabled = false;
+
+        peer = new Peer(meuId);
+
+        peer.on('open', () => {
+          status.innerText = souOsPais ? "MODO: CASA DE CIMA (ONLINE)" : "MODO: MEU CELULAR (ONLINE)";
+          status.style.color = "#4caf50";
+          btn.disabled = false;
+          btn.innerText = "SEGURE PARA FALAR";
+          conectarAoOutro();
+        });
+
+        // Quando o outro celular ligar para este, atende automaticamente sem precisar clicar
+        peer.on('call', (call) => {
+          call.answer(meuStream);
+          configurarAudio(call);
+        });
+
+        // Reconecta automaticamente se a rede oscilar
+        peer.on('disconnected', () => peer.reconnect());
+
+      } catch (err) {
+        status.innerText = "ERRO NO MICROFONE: " + err.message;
+        status.style.color = "#f44336";
+      }
+    }
+
+    function conectarAoOutro() {
+      if (!peer || peer.disconnected) return;
+      const call = peer.call(destinoId, meuStream);
+      if (call) configurarAudio(call);
+    }
+
+    function configurarAudio(call) {
+      chamadaAtiva = call;
+      call.on('stream', (streamRemoto) => {
+        audioRemoto.srcObject = streamRemoto;
+        audioRemoto.play();
+      });
+    }
+
+    // Controle do Botão Gigante (Abre e fecha o microfone instantaneamente)
+    function apertarBotao(e) {
+      e.preventDefault();
+      if (!meuStream) return;
+      if (!chamadaAtiva || !chamadaAtiva.open) conectarAoOutro();
+
+      meuStream.getAudioTracks()[0].enabled = true; // Abre o microfone
+      btn.classList.add('falando');
+      btn.innerText = "FALANDO AGORA...";
+    }
+
+    function soltarBotao(e) {
+      e.preventDefault();
+      if (!meuStream) return;
+      meuStream.getAudioTracks()[0].enabled = false; // Fecha o microfone
+      btn.classList.remove('falando');
+      btn.innerText = "SEGURE PARA FALAR";
+    }
+
+    btn.addEventListener('touchstart', apertarBotao);
+    btn.addEventListener('touchend', soltarBotao);
+    btn.addEventListener('mousedown', apertarBotao);
+    btn.addEventListener('mouseup', soltarBotao);
+  </script>
+</body>
+</html>
